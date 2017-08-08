@@ -30,11 +30,11 @@ Basically, you have three options how to employ additional ado files:
 
 ## Examples
 
-We provide an example application on price levels and inflation in _/example_.
+We provide an example application on price levels and inflation in _/examples_.
 
-1. Download the folder _/example_.
+1. Download the folder _/examples_.
 
-2. Start Stata and change the working directory to your _/example_ copy.
+2. Start Stata and change the working directory to your _/examples_ copy.
 
 3. Run _prices.do_ and observe the results.
 
