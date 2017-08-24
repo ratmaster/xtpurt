@@ -1,4 +1,8 @@
 # xtpurt
+Current version: 1.1.0 (24 August 2017)
+
+[![Package-License](https://img.shields.io/github/license/mashape/apistatus.svg)](https://opensource.org/licenses/MIT)
+
 _Stata implementation of modern panel unit root tests for heteroskedastic panels_
 
 The Stata command `xtpurt` implements the heteroskedasticity-robust panel unit root tests (PURTs) suggested in
@@ -12,6 +16,7 @@ The Stata command `xtpurt` implements the heteroskedasticity-robust panel unit r
 While the former two tests are robust to time varying volatility when the data contain an intercept only, the latter test is unique in the sense that it is asymptotically pivotal for trending heteroskedastic panels. Moreover, `xtpurt` incorporates lag order selection, prewhitening and detrending procedures to account for serial correlation and trending data.
 
 _The vignette paper for `xtpurt` is under review at the Stata Journal. Hence, we cannot publish it here. As soon as possible, we will provide references to the Stata Journal article._
+
 
 ## Installation
 
@@ -27,6 +32,13 @@ Basically, you have three options how to employ additional ado files:
 2. Specific directory: You might have or want to create a specific command library folder where you keep your collection of Stata extensions. Copy both files in this folder, e.g. _C:\\mystata\\ado\\_. In Stata you import all functions by means of `adopath + "C:\mystata\ado"`.
 
 3. Personal directory: You can install `xtpurt` system wide by copying both files to the  [personal ado directory](http://www.stata.com/support/faqs/programming/personal-ado-directory/) at _C:\\ado\\personal\\_.
+
+### Update
+
+Re-download the files from the folder _/ado_ to your hardisk and replace the existing.
+
+Afterwards, restart Stata or run the command `discard` for refreshing your ado libraries.
+
 
 ## Examples
 

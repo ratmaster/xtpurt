@@ -1,4 +1,4 @@
-*! version 1.0.0  01jul2017
+*! version 1.1.0  24aug2017
 //******************************************************************************
 // xtpurt: A Comprehensive Testing Framework for Panel Unit Root Tests
 // -------------------------------------------------------------------
@@ -42,9 +42,50 @@ syntax varname(ts) [if] [in], [ TEST(string)     ///
 
 tsunab ylevel : `varlist'
 marksample touse
-if "`noconstant'" != "" & "`trend'" != "" {
-	di in smcl as err "cannot specify both {bf:noconstant} and {bf:trend}"
-	exit 198
+
+if "`test'" != "" {
+	if "`test'" != "hs" && "`test'" != "dh" && "`test'" != "hmw"  ///
+			      && "`test'" != "all" {
+		di as error "panel unit root test {bf:`test'} is unknown"
+		exit 198
+	}
+}
+else {
+	// set default tests
+	if "`trend'" != "" {
+		local test = "hmw"
+	}
+	else {
+		local test = "hs"
+	}
+}
+
+// errors and warnings for combinations of deterministics and tests
+local warnings = ""
+if "`trend'" != "" {
+	if "`noconstant'" != "" {
+		di in smcl as err "cannot specify both {bf:noconstant} and {bf:trend}"
+		exit 198
+	}
+	
+	// deterministics for lag order selection and prewhitening
+	local noconst = ""
+
+	if "`test'" == "all" {
+		local warnings = "t_hs and t_dh are not robust to heteroskedasticity with {bf:trend}"
+	}
+	else if "`test'" != "hmw" {
+		local warnings = "t_`test' is not robust to heteroskedasticity with {bf:trend}"
+	}
+}
+else {
+	// deterministics for lag order selection and prewhitening
+	local noconst = "noconstant"
+
+	if "`test'" == "hmw" {
+		di in smcl as err "cannot apply panel unit root test {bf:hmw} without {bf:trend}"
+		exit 198
+	}
 }
 
 if "`lagsel'" != "" {
@@ -82,40 +123,13 @@ if "`maxlags'" != "" {
 		di as error "cannot specify both {bf:lags()} and {bf:maxlags()}"
 		exit 198
 	}
-	if `maxlags' < 0 {
-		di as error "{bf:maxlags()} must be nonnegative"
+	if `maxlags' < 2 {
+		di as error "{bf:maxlags()} must be at least 2"
 		exit 198
 	}
 }
 else {
 	local maxlags = "4"
-}
-
-if "`test'" != "" {
-	if "`test'" != "dh" && "`test'" != "hmw" && "`test'" != "hs" ///
-			      && "`test'" != "all" {
-		di as error "panel unit root test {bf:`test'} is unknown"
-		exit 198
-	}
-}
-else {
-	if "`trend'" == "" {
-		local test = "hs"
-	}
-	else {
-		local test = "hmw"
-	}
-}
-
-// warnings for combinations of deterministics and tests
-local warnings = ""
-if "`trend'" != "" {
-	if "`test'" == "all" {
-		local warnings = "t_hs and t_dh are not robust to heteroskedasticity with {bf:trend}"
-	}
-	else if "`test'" != "hmw" {
-		local warnings = "t_`test' is not robust to heteroskedasticity with {bf:trend}"
-	}
 }
 
 
@@ -129,7 +143,7 @@ scalar `usrdelta' = `r(tdelta)'
 // check for balanced sample without missing data
 qui _xtstrbal `panelvar' `timevar' `touse'
 if r(strbal) == "no" {
-	di as error "Test requires strongly balanced data"
+	di as error "test requires strongly balanced data"
 	exit 498
 }
 
@@ -139,12 +153,12 @@ preserve
 quietly {
 drop if `touse' == 0
 
-// do not allow gaps (mistake in xtunitroot)
+// do not allow gaps
 tempname timediff
 by `panelvar': gen `timediff' = D.`timevar'
 capture assert `timediff' == `usrdelta' if `timevar' != `timevar'[1]
 if c(rc) {
-	di as error "Test does not allow for gaps in data"
+	di as error "test does not allow for gaps in data"
 	exit 498
 }
 
@@ -169,18 +183,25 @@ foreach i of local ggs {
 // determine lagorder
 tempvar lagorder
 if "`lagsel'" != "fix" {
-	if `maxlags' == 0 {
-		gen int `lagorder' = 0
+	// receive optimal lag-order
+	gen int `lagorder' = .
+	tempname llz lorder
+	scalar `llz' = .
+	if "`noconst'" != "" {
+		tempvar ydiff2
+		gen double `ydiff2' = `ydiff'^2
+		by `panelvar': replace `ydiff2' = . if _n <= `maxlags' + 1
 	}
-	else {
-		// receive optimal lag-order
-		gen int `lagorder' = .
-		foreach i of local ggs {
-			varsoc `ydiff' if `panelvar' == `i', ///
-				maxlag(`maxlags') `noconstant'
-			mata getLagorder("`lagsel'")
-			replace `lagorder' = lorder if `panelvar' == `i'
+	foreach i of local ggs {
+		// compute information criteria for zero lags and noconstant
+		if "`noconst'" != "" {
+			summarize `ydiff2' if `panelvar' == `i', meanonly
+			scalar `llz' = ln(r(mean)) + ln(2 * _pi) + 1
 		}
+	
+		varsoc `ydiff' if `panelvar' == `i', maxlag(`maxlags') `noconst'
+		mata getLagorder("`lagsel'", "`llz'", "`lorder'")
+		replace `lagorder' = `lorder' if `panelvar' == `i'
 	}
 }
 else {
@@ -198,43 +219,19 @@ mat rownames lom = `ggs'
 
 // prewhitening
 tempvar ylevelpre ydiffpre
-if "`trend'" != "" || "`test'" == "hmw" || "`test'" == "all" {
-tempvar ylevelb ydiffb
 gen double `ylevelpre' = `ylevel'
 gen double `ydiffpre' = `ydiff'
+tempname beta
 local row = 1
 foreach i of local ggs {
 	local lo = lom[`row', 1]
 	if `lo' > 0 {
-		regress `ydiff' L(1/`lo').`ydiff' if `panelvar' == `i'
-		matrix beta = e(b)
+		regress `ydiff' L(1/`lo').`ydiff' if `panelvar' == `i', `noconst'
+		matrix `beta' = e(b)
 		forvalues j = 1/`lo' {
-			replace `ylevelpre' = `ylevelpre' - beta[1,`j'] * L`j'.`ylevel' ///
+			replace `ylevelpre' = `ylevelpre' - `beta'[1,`j'] * L`j'.`ylevel' ///
 						if `panelvar' == `i'
-			replace `ydiffpre' = `ydiffpre' - beta[1,`j'] * L`j'.`ydiff' ///
-						if `panelvar' == `i'
-		}
-	}
-	local row = `row' + 1
-}
-gen double `ylevelb' = `ylevelpre'
-gen double `ydiffb' = `ydiffpre'
-drop `ylevelpre' `ydiffpre'
-}
-
-if "`trend'" == "" && "`test'" != "hmw" {
-gen double `ylevelpre' = `ylevel'
-gen double `ydiffpre' = `ydiff'
-local row = 1
-foreach i of local ggs {
-	local lo = lom[`row', 1]
-	if `lo' > 0 {
-		regress `ydiff' L(1/`lo').`ydiff' if `panelvar' == `i', noconstant
-		matrix beta = e(b)
-		forvalues j = 1/`lo' {
-			replace `ylevelpre' = `ylevelpre' - beta[1,`j'] * L`j'.`ylevel' ///
-						if `panelvar' == `i'
-			replace `ydiffpre' = `ydiffpre' - beta[1,`j'] * L`j'.`ydiff' ///
+			replace `ydiffpre' = `ydiffpre' - `beta'[1,`j'] * L`j'.`ydiff' ///
 						if `panelvar' == `i'
 		}
 	}
@@ -243,72 +240,62 @@ foreach i of local ggs {
 replace `ylevel' = `ylevelpre'
 replace `ydiff' = `ydiffpre'
 drop `ylevelpre' `ydiffpre'
-}
 
 
 // re-balance panel
+tempname maxlag minlag
 summarize `lagorder', meanonly
-scalar maxlag = r(max)
-scalar minlag = r(min)
-by `panelvar': drop if _n <= maxlag + 1
+scalar `maxlag' = r(max)
+scalar `minlag' = r(min)
+by `panelvar': drop if _n <= `maxlag' + 1
 
 
-// recursive detrending according to Demetrescu and Hanck (2014)
-if "`trend'" != "" || "`test'" == "hmw" || "`test'" == "all" {
-	tempvar yleveldet ydiffdet
-	by `panelvar': gen double `yleveldet' = `ylevelb' + (2 / _n) * sum(`ylevelb') ///
-				- 6 / ((_n + 1) * _n) * sum(_n * `ylevelb')
+if "`trend'" != "" {
+	// recursive detrending according to Chang (2002)
+	by `panelvar': replace `ylevel' = `ylevel' + (2 / _n) * sum(`ylevel') ///
+				- 6 / ((_n + 1) * _n) * sum(_n * `ylevel')
+	
 	// first two differences might not be exactly zero
 	// which affects DH via the sign() transformations
-	replace `yleveldet' = 0 if `timevar' == `timevar'[1] | `timevar' == `timevar'[2]
-
-	gen double `ydiffdet' = .
+	replace `ylevel' = 0 if `timevar' == `timevar'[1] | `timevar' == `timevar'[2]
+	
 	foreach i of local ggs {
-		summarize `ydiffb' if `panelvar' == `i', meanonly
-		replace `ydiffdet' = `ydiffb' - r(mean) if `panelvar' == `i'
+		summarize `ydiff' if `panelvar' == `i', meanonly
+		replace `ydiff' = `ydiff' - r(mean) if `panelvar' == `i'
+	}
+}
+else {
+	// demeaning by subtracting the first observation
+	if "`noconstant'" == "" {
+		tempname firstelem
+		by `panelvar': gen double `firstelem' = `ylevel'[1]
+		by `panelvar': replace `ylevel' = `ylevel' - `firstelem'
 	}
 }
 
-// demeaning by subtracting the first observation
-if "`noconstant'" == "" && "`test'" != "hmw" {
-	tempname firstelem
-	by `panelvar': gen double `firstelem' = `ylevel'[1]
-	by `panelvar': replace `ylevel' = `ylevel' - `firstelem'
 }
-
-}
-
 
 // apply testing method
+tempname tau
+if "`test'" == "hmw" || ("`test'" == "all" && "`trend'" != "") {
+	// applying HMW test
+	mata getHMW("`timevar'", "`ylevel'", "`ydiff'", "`tau'")
+	return scalar t_hmw_p = normal(`tau')
+	return scalar t_hmw = `tau'
+	local testname = "Herwartz et al. (2017)"
+}
 if "`test'" == "dh" || "`test'" == "all" {
 	// applying DH test
-	if "`trend'" != "" {
-		mata getDH("`timevar'", "`yleveldet'", "`ydiffdet'")
-	}
-	else {
-		mata getDH("`timevar'", "`ylevel'", "`ydiff'")
-	}
-	return scalar t_dh = tau
-	return scalar t_dh_p = normal(tau)
+	mata getHSDH("`timevar'", "`ylevel'", "`ydiff'", "`tau'", 1)
+	return scalar t_dh_p = normal(`tau')
+	return scalar t_dh = `tau'
 	local testname = "Demetrescou and Hanck (2012)"
-}
-if "`test'" == "hmw" || "`test'" == "all" {
-	// applying HMW test
-	mata getHMW("`timevar'", "`yleveldet'", "`ydiffdet'")
-	return scalar t_hmw = tau
-	return scalar t_hmw_p = normal(tau)
-	local testname = "Herwartz et al. (2017)"
 }
 if "`test'" == "hs" || "`test'" == "all" {
 	// applying HS test
-	if "`trend'" != "" {
-		mata getHS("`timevar'", "`yleveldet'", "`ydiffdet'")
-	}
-	else {
-		mata getHS("`timevar'", "`ylevel'", "`ydiff'")
-	}
-	return scalar t_hs = tau
-	return scalar t_hs_p = normal(tau)
+	mata getHSDH("`timevar'", "`ylevel'", "`ydiff'", "`tau'", 0)
+	return scalar t_hs_p = normal(`tau')
+	return scalar t_hs = `tau'
 	local testname = "Herwartz and Siedenburg (2008)"
 }
 if "`test'" == "all" {
@@ -332,10 +319,10 @@ if ("`lagsexport'" != "") {
 
 // define return values
 qui xtsum `panelvar' if `touse'
-return scalar N    = r(N)
-return scalar N_g  = r(n)
+return scalar N_r  = r(N) / r(n) - `maxlag' - 1
 return scalar N_t  = r(N) / r(n)
-return scalar N_r  = r(N) / r(n) - maxlag - 1
+return scalar N_g  = r(n)
+return scalar N    = r(N)
 return matrix lags = lom
 return local warnings = "`warnings'"
 return local lagsel = "`lagsel'"
@@ -367,40 +354,40 @@ di as text 					///
 	_col(64) as res %7.0g return(N_r)
 di
 di as text "Constant:   " _c
-if "`noconstant'" == "" {
-	di as res "Included" _c
+if "`noconstant'" != "" {
+	di as res "Not included" _c
 }
 else {
-	di as res "Not included" _c
+	di as res "Included" _c
 }
 di as text _col(45) "Prewhitening: " _c
 di as res "`lagcriterion'"
 di as text "Time trend: " _c
-if "`trend'" == "" {
-	di as res "Not included" _c
-}
-else {
+if "`trend'" != "" {
 	di as res "Included" _c
 }
+else {
+	di as res "Not included" _c
+}
 di as text _col(45) "Lag orders: " _c
-di as res  "  min=" as res %1.0f minlag " max=" as res %1.0f maxlag
+di as res  "  min=" as res %1.0f `minlag' " max=" as res %1.0f `maxlag'
 di in smcl as text "{hline 78}"
 di as text _col(2) "Name" _col(21) "Statistic" _col(36) "p-value"
 di in smcl as text "{hline 78}"
+if "`test'" == "hs" || "`test'" == "all" {
+	di as text _col(2) "t_hs"			///
+		as res _col(21) %9.4f return(t_hs)	///
+		as res _col(37) %6.4f return(t_hs_p)
+}
 if "`test'" == "dh" || "`test'" == "all" {
 	di as text _col(2) "t_dh"			///
 		as res _col(21) %9.4f return(t_dh)	///
 		as res _col(37) %6.4f return(t_dh_p)
 }
-if "`test'" == "hmw" || "`test'" == "all" {
+if "`test'" == "hmw" || ("`test'" == "all" && "`trend'" != "") {
 	di as text _col(2) "t_hmw"			///
 		as res _col(21) %9.4f return(t_hmw)	///
 		as res _col(37) %6.4f return(t_hmw_p)
-}
-if "`test'" == "hs" || "`test'" == "all" {
-	di as text _col(2) "t_hs"			///
-		as res _col(21) %9.4f return(t_hs)	///
-		as res _col(37) %6.4f return(t_hs_p)
 }
 if "`warnings'" != "" {
 	di
@@ -413,9 +400,10 @@ end
 
 
 mata
-// define lagorder subfunction
-void getLagorder(string scalar lagsel) {
+// define lag order subfunction
+void getLagorder(string scalar lagsel, string scalar llzn, string scalar lordern) {
 	X = st_matrix("r(stats)")
+	z = st_numscalar(llzn)
 	if (lagsel == "aic") {
 		a = 7
 	}
@@ -425,31 +413,45 @@ void getLagorder(string scalar lagsel) {
 	else {
 		a = 8
 	}
-	y = select(X[, 1], X[, a] :== colmin(X[, a]))
-	st_numscalar("lorder", y)
+	mv = colmin(X[, a])
+	if (z == . || mv < z) {
+		y = select(X[, 1], X[, a] :== mv)
+	}
+	else {
+		y = 0
+	}
+	st_numscalar(lordern, y)
 }
 
 
-// define DH test
-void getDH(string scalar timevarn, string scalar yleveln,  string scalar ydiffn) {
+// define HS and DH test
+void getHSDH(string scalar timevarn, string scalar yleveln, string scalar ydiffn, string scalar taun, real scalar dh) {
 	timevar = st_data(., timevarn)
 	T = rows(uniqrows(timevar))
 
 	ylevel = st_data(., yleveln)
 	ydiff = st_data(., ydiffn)
-	yLevel = sign(colshape(ylevel, T)')
+	yLevel = colshape(ylevel, T)'
+	if (dh == 1) {
+		yLevel = sign(yLevel)
+	}
 	yDiff = colshape(ydiff, T)'
 
-	// compute DH test statistic
-	tau = compHS(T, yLevel, yDiff)
+	// compute HS or DH test statistic
+	x = colshape(yLevel[1..T-1, .]', 1)' * colshape(yDiff[2..T, .]', 1)
+	z = 0
+	for (t = 2; t <= T; t++) {
+		z = z + yLevel[t - 1, .] * yDiff[t, .]' * yDiff[t, .] * yLevel[t - 1, .]'
+	}
+	tau = x / sqrt(z)
 
 	// return estimated tau
-	st_numscalar("tau", tau)
+	st_numscalar(taun, tau)
 }
 
 
 // define HMW test
-void getHMW(string scalar timevarn, string scalar yleveln, string scalar ydiffn) {
+void getHMW(string scalar timevarn, string scalar yleveln, string scalar ydiffn, string scalar taun) {
 	timevar = st_data(., timevarn)
 	T = rows(uniqrows(timevar))
 
@@ -540,38 +542,6 @@ void getHMW(string scalar timevarn, string scalar yleveln, string scalar ydiffn)
 	tau = (x - sum(nu)) / sqrt(c1 - c2 + c3 + c4 + c5)
 
 	// return estimated tau
-	st_numscalar("tau", tau)
-}
-
-
-// define HS test
-void getHS(string scalar timevarn, string scalar yleveln, string scalar ydiffn) {
-	timevar = st_data(., timevarn)
-	T = rows(uniqrows(timevar))
-
-	ylevel = st_data(., yleveln)
-	ydiff = st_data(., ydiffn)
-	yLevel = colshape(ylevel, T)'
-	yDiff = colshape(ydiff, T)'
-
-	// compute HS test statistic
-	tau = compHS(T, yLevel, yDiff)
-
-	// return estimated tau
-	st_numscalar("tau", tau)
-}
-
-
-// compute HS test
-real scalar compHS(real scalar T, real matrix yLevel, real matrix yDiff) {
-	x = colshape(yLevel[1..T-1, .]', 1)' * colshape(yDiff[2..T, .]', 1)
-
-	z = 0
-	for (t = 2; t <= T; t++) {
-		z = z + yLevel[t - 1, .] * yDiff[t, .]' * yDiff[t, .] * yLevel[t - 1, .]'
-	}
-
-	// return test statistic
-	return(x / sqrt(z))
+	st_numscalar(taun, tau)
 }
 end

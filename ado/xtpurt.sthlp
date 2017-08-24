@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 1.0.0  01jul2017}{...}
+{* *! version 1.1.0  24aug2017}{...}
 {vieweralsosee "[R] xtunitroot" "help xtunitroot"}{...}
 {vieweralsosee "" "--"}{...}
 {vieweralsosee "[R] xtset" "help xtset"}{...}
@@ -48,7 +48,7 @@
 {title:Description}
 
 {pstd}
-{cmd:xtpurt} implements the heteroskedasticity-robust panel unit root tests (PURTs) suggested in Herwartz and Siedenburg (2008), Demetrescu and Hanck (2012) and Herwartz et al. (2017). While the former two tests are robust to time varying volatility when the data contain an intercept only, the latter test is asymptotically pivotal for trending heteroskedastic panels. Special attention is paid to conform to the Stata-built-in function {cmd:xtunitroot}. Moreover, {cmd:xtpurt} incorporates lag order selection, prewhitening and detrending procedures to account for serial correlation and trending data. The function can be applied to a balanced panel dataset in long format, declared explicitly to be panel data - see {cmd:xtset}. Here, {varname} specifies the variable name in the working space to be assessed for a unit root. Missing observations are not allowed. Strictly speaking, the first order differences of the declared time variable (the time variable delta) have to be constant.
+{cmd:xtpurt} implements the heteroskedasticity-robust panel unit root tests (PURTs) suggested in Herwartz and Siedenburg (2008), Demetrescu and Hanck (2012) and Herwartz et al. (2017). While the former two tests are robust to time varying volatility when the data contain an intercept only, the latter test is asymptotically pivotal for trending heteroskedastic panels. Special attention is paid to conform to the Stata-built-in function {cmd:xtunitroot}. Moreover, {cmd:xtpurt} incorporates lag order selection, prewhitening and detrending procedures to account for serial correlation and trending data. The function requires a balanced panel dataset in long format, declared explicitly to be panel data - see {cmd:xtset}. Here, {varname} specifies the variable name in the working space to be assessed for a unit root. Missing observations are not allowed. Strictly speaking, the first order differences of the declared time variable (the time variable delta) have to be constant.
 
 
 {marker citation}{...}
@@ -63,7 +63,7 @@
 {title:Options}
 
 {phang}
-{opt test(testname)} specifies the testing method to be applied. The three tests described before are supported; Herwartz and Siedenburg (2008), Demetrescu and Hanck (2012) and Herwartz et al. (2017). All approaches can be called jointly returning their results in a single output table. Accordingly, {it:testname} can be: {opt dh}, {opt hmw}, {opt hs}, {opt all}. Default: {opt hs}; {opt hmw} if {opt trend} (see below).
+{opt test(testname)} specifies the testing method to be applied. The three tests described before are supported; Herwartz and Siedenburg (2008), Demetrescu and Hanck (2012) and Herwartz et al. (2017). All approaches can be called jointly returning their results in a single output table. However, the test by Herwartz et al. (2017) requires that the option {opt trend} (see below) is set. Accordingly, {it:testname} can be: {opt hs}, {opt dh}, {opt hmw}, {opt all}. Default: {opt hs}; {opt hmw} if {opt trend}.
 
 {phang}
 {opt trend} adds a deterministic trend to the regession model. This option affects the lag order selection, prewhitening and detrending procedures.
@@ -95,7 +95,15 @@
 {marker examples}{...}
 {title:Examples}
 
+{phang}{cmd:. gen lprices = log(prices)}{p_end}
+
+{phang}{cmd:. gen dlprices = D.lprices}{p_end}
+
+{phang}{p_end}
+
 {phang}{cmd:. xtpurt lprices}{p_end}
+
+{phang}{cmd:. xtpurt lprices, trend}{p_end}
 
 {phang}{cmd:. xtpurt lprices, test(all) trend maxlags(9)}{p_end}
 
@@ -118,16 +126,16 @@
 {synopt:{cmd:r(N_g)}}number of panels{p_end}
 {synopt:{cmd:r(N_t)}}number of time periods{p_end}
 {synopt:{cmd:r(N_r)}}number of time periods after rebalancing{p_end}
+{synopt:{cmd:r(t_hs)}}HS test statistic{p_end}
+{synopt:{cmd:r(t_hs_p)}}p-value for HS test statistic{p_end}
 {synopt:{cmd:r(t_dh)}}DH test statistic{p_end}
 {synopt:{cmd:r(t_dh_p)}}p-value for DH test statistic{p_end}
 {synopt:{cmd:r(t_hmw)}}HMW test statistic{p_end}
 {synopt:{cmd:r(t_hmw_p)}}p-value for HMW test statistic{p_end}
-{synopt:{cmd:r(t_hs)}}HS test statistic{p_end}
-{synopt:{cmd:r(t_hs_p)}}p-value for HS test statistic{p_end}
 
 {synoptset 20 tabbed}{...}
 {p2col 5 20 24 2: Macros}{p_end}
-{synopt:{cmd:r(test)}}{opt dh}, {opt hmw}, {opt hs}, or {opt all}{p_end}
+{synopt:{cmd:r(test)}}{opt hs}, {opt dh}, {opt hmw}, or {opt all}{p_end}
 {synopt:{cmd:r(determ)}}{opt noconstant}, {opt constant}, or {opt trend}{p_end}
 {synopt:{cmd:r(lagsel)}}{opt aic}, {opt bic}, {opt hqic}, or {opt fix}{p_end}
 {synopt:{cmd:r(warnings)}}{it:Caution} message as {it:string}, if warning occurred{p_end}
