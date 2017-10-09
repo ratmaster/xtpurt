@@ -15,7 +15,7 @@ The Stata command `xtpurt` implements the heteroskedasticity-robust panel unit r
 
 While the former two tests are robust to time varying volatility when the data contain an intercept only, the latter test is unique in the sense that it is asymptotically pivotal for trending heteroskedastic panels. Moreover, `xtpurt` incorporates lag order selection, prewhitening and detrending procedures to account for serial correlation and trending data.
 
-_The vignette paper for `xtpurt` is under review at the Stata Journal. Hence, we cannot publish it here. As soon as possible, we will provide references to the Stata Journal article._
+_The software package and vignette paper for `xtpurt` are forthcoming in the Stata Journal. Hence, we cannot publish the vignette paper here. As soon as possible, we will provide references to the Stata Journal article._
 
 
 ## Installation
